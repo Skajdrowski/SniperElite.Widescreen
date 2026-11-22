@@ -60,7 +60,13 @@ namespace Asura {
     // The first four fields are the element's rectangle; the last four mirror
     // the current camera ViewingArea.
     struct HudElement {
-        uint8_t Unknown[0x28];
+        uintptr_t* vTable;
+        HudElement* Parent;
+        HudElement** Children;
+        int32_t ChildCount;
+        uint8_t Unknown[0x08];
+        float LocalX, LocalY;
+        float LocalWidth, LocalHeight;
         float X, Y;
         float Width, Height;
         float XOffset, YOffset;
@@ -167,19 +173,6 @@ namespace HUD {
         float MaskU, MaskV;
     };
 
-    // 0x5020C0 lays out a HUD element for the current camera ViewingArea.
-    struct ScaleHudElement {
-        void operator()(injector::reg_pack& regs) const {
-            auto* element = reinterpret_cast<Asura::HudElement*>(regs.esi);
-            element->X += Res.HudOffset;
-            element->Width -= Res.HudOffset * 2.0f;
-
-            const auto viewingHeight = *reinterpret_cast<uint32_t*>(regs.edi + 0x04);
-            regs.eax = viewingHeight;
-            *reinterpret_cast<uint32_t*>(&element->ViewingHeight) = viewingHeight;
-        }
-    };
-
     void* (__cdecl* GetPlayerByIndex)(int32_t) = nullptr;
     uint8_t* localPlayer = nullptr;
     static SafetyHookInline PlayerArrayInit, PlayerArrayShutdown;
@@ -201,26 +194,34 @@ namespace HUD {
 
     float TextShift = 0.0f;
 
-    void AnchorElement(injector::reg_pack& regs) {
-        if (IsPlayerInSniperMode())
+    void ScaleAndAnchor(injector::reg_pack& regs) {
+        auto* element = reinterpret_cast<Asura::HudElement*>(regs.esi);
+
+        // Mirror of branch condition at 0x5020C6.
+        uint8_t(__thiscall * AbsoluteLayout)(Asura::HudElement*);
+        const bool absolute = !element->Parent || reinterpret_cast<decltype(AbsoluteLayout)>(element->vTable[6])(element) != 0;
+
+        // Absolute/root layout: recentre it inside the 4:3 area
+        // before the child loop below, so children inherit the result.
+        if (absolute) {
+            element->X += Res.HudOffset;
+            element->Width -= Res.HudOffset * 2.0f;
+        }
+
+        // Relative child layout: anchor direct children of the root to the
+        // display sides, while leaving centred elements alone.
+        const auto* root = element->Parent;
+        if (IsPlayerInSniperMode() || !root || root->Parent)
             return;
 
-        const auto node = regs.esi;
-        const auto parent = *reinterpret_cast<uintptr_t*>(node + 0x04);
-        if (!parent || *reinterpret_cast<uintptr_t*>(parent + 0x04))
-            return;
-
-        const auto* root = reinterpret_cast<const Asura::HudElement*>(parent);
         if (fabsf(root->X - Res.HudOffset) > 1.0f || fabsf(root->Width - Res.fWidth43) > 1.0f)
             return;
 
-        auto* rect = reinterpret_cast<float*>(node);
-        const float center = rect[6] + rect[8] / 2.0f;
+        const float center = element->LocalX + element->LocalWidth / 2.0f;
         const float side = center < 0.45f ? -1.0f : center > 0.55f ? 1.0f : 0.0f;
-        rect[10] += side * (Res.fHeight * Res.AspectRatio - Res.fWidth43) / 2.0f; // The HUD pictures; its text moves in UI::Print
+        element->X += side * Res.HudOffset; // HUD pictures; text moves in UI::Print
     }
-
-    static SafetyHookMid Anchor;
+    static SafetyHookMid ScaleAndAnchorHook;
 
     inline float LineHeightRender(float x) {
         return 0.5f + (x - 0.5f) * (Res.fWidth - 2.0f * Res.HudOffset) / Res.fWidth;
@@ -579,18 +580,14 @@ void Hud() {
         pattern = hook::pattern("A0 ? ? ? ? 53 33 ? 3A ? 0F ? ? ? ? ? 38");
     HUD::PlayerArrayShutdown = safetyhook::create_inline(pattern.count(1).get(0).get<uint32_t>(0), HUD::ClearPlayerPointer);
 
-    // 0x5020C0: HUD element layout, recentred inside the 4:3 area.
-    pattern = hook::pattern("8B ? ? 89 ? ? 83 ? ? ? ? ? ? 75 ? A1");
-    injector::MakeInline<HUD::ScaleHudElement>(pattern.count(1).get(0).get<uint32_t>(0), pattern.count(1).get(0).get<uint32_t>(6));
-
     // 0x502232: text and radar arrow scale.
     static const float HudScaling = (0.0009765625f / Res.AspectRatio) * Aspect43;
     pattern = hook::pattern("D8 ? ? ? ? ? D9 ? ? D9 ? ? ? D8 ? ? ? ? ? D9 ? ? ? ? ? D9 ? ? ? D8");
     injector::WriteMemory(pattern.count(1).get(0).get<uint32_t>(2), &HudScaling, true);
 
-    // 0x5020C0 call site: anchor HUD pictures to the 4:3 viewport.
-    pattern = hook::pattern("8B 46 08 85 C0 74 2A 8B 46 0C 33");
-    HUD::Anchor = safetyhook::create_mid(pattern.count(1).get(0).get<uint32_t>(0), HUD::AnchorElement);
+    // 0x5020C0 call site: HUD element layout, recentred inside the 4:3 area.
+    pattern = hook::pattern("8B ? ? 85 ? 74 ? 8B ? ? 33 ? 85 ? 7E ? EB ? 8D ? ? 8B");
+    HUD::ScaleAndAnchorHook = safetyhook::create_mid(pattern.count(1).get(0).get<uint32_t>(0), HUD::ScaleAndAnchor);
 
     // 0x5E880C (compass/interaction hints) and 0x4FEDF1 (quotes/objectives).
     pattern = hook::pattern("D8 ? ? ? ? ? 50 D9 ? ? ? E8 ? ? ? ? 50");
