@@ -128,7 +128,7 @@ inline std::tuple<int32_t, int32_t> GetDesktopRes() {
         return { static_cast<int32_t>(mode.dmPelsWidth), static_cast<int32_t>(mode.dmPelsHeight) };
     const int32_t width = info.rcMonitor.right - info.rcMonitor.left;
     const int32_t height = info.rcMonitor.bottom - info.rcMonitor.top;
-    return width > 0 && height > 0 ? std::make_tuple(width, height) : std::make_tuple(640, 480);
+    return width > 0 && height > 0 ? std::make_tuple(width, height) : std::make_tuple(1280, 720);
 }
 
 void SetRes(injector::reg_pack& regs) {
