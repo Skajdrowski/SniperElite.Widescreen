@@ -101,7 +101,7 @@ void RedirectViewportWidth(const uint8_t* begin, const uint8_t* end, uint32_t na
     uint8_t bytes[sizeof(nativeViewportWidth)];
     to_bytes(nativeViewportWidth, bytes);
 
-    char pattern[sizeof(nativeViewportWidth) * 3 + 1];
+    char pattern[sizeof(nativeViewportWidth) * 3 + 1]{};
     pattern_str<sizeof(nativeViewportWidth)>(bytes, pattern);
 
     hook::range_pattern(reinterpret_cast<uintptr_t>(begin), reinterpret_cast<uintptr_t>(end), pattern).for_each_result(
@@ -217,7 +217,7 @@ namespace HUD {
 
         const float center = element->LocalX + element->LocalWidth / 2.0f;
         const float side = center < 0.45f ? -1.0f : center > 0.55f ? 1.0f : 0.0f;
-        element->X += side * Res.HudOffset; // HUD pictures; text moves in UI::Print
+        element->X += side * Res.HudOffset; // HUD pictures; text moves in UI::PrintLongString
     }
     static SafetyHookMid ScaleAndAnchorHook;
 
@@ -379,16 +379,15 @@ namespace UI {
         auto centered = std::exchange(CenteredText, (format & 1) != 0);
         auto fontWidth = std::exchange(FontWidth, (format & 1) ? Res.Width43 : Res.Width);
 
-        float side = 0.0f;
+        float textShift = 0.0f;
         if (CenteredText && Mode == DrawMode::Game && !HUD::IsPlayerInSniperMode()) {
             float position = x;
             if (format & 0x100) position = (clip->MinX + clip->MaxX) * 0.5f; // x is relative to the text's box
             position = position > 1.5f ? position / Res.fWidth43 : position;
-            side = position < 0.45f ? -1.0f : position > 0.55f ? 1.0f : 0.0f;
-        }
-        float textShift = 0.0f;
-        if (CenteredText)
+            const float side = position < 0.45f ? -1.0f : position > 0.55f ? 1.0f : 0.0f;
+
             textShift = side * Res.HudOffset;
+        }
         auto shift = std::exchange(HUD::TextShift, textShift);
 
         auto result = PrintLongStringHook.unsafe_ccall<char>(text, clip, x, y, spacing, scale, colour, format);
