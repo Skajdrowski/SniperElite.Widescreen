@@ -83,14 +83,12 @@ namespace Asura {
 }
 
 struct Resolution {
-    int32_t Width = 0;
-    int32_t Width43 = 0;
+    int32_t Width = 0, Width43 = 0;
     int32_t Height = 0;
-    float fWidth = 0.0f;
-    float fWidth43 = 0.0f;
+    float fWidth = 0.0f, fWidth43 = 0.0f, fWidthRatio = 0.0f;
     float fHeight = 0.0f;
     float AspectRatio = 0.0f;
-    float HudOffset = 0.0f;
+    float HudOffset = 0.0f, HudOffset43 = 0.0f, HudOffsetRatio = 0.0f;
 } Res;
 constexpr float Aspect43 = 4.0f / 3.0f;
 
@@ -224,7 +222,7 @@ namespace HUD {
     static SafetyHookMid ScaleAndAnchorHook;
 
     inline float LineHeightRender(float x) {
-        return 0.5f + (x - 0.5f) * (Res.fWidth - 2.0f * Res.HudOffset) / Res.fWidth;
+        return x * Res.fWidthRatio + Res.HudOffsetRatio;
     }
 
     void AdjustHorizontalLineRender(injector::reg_pack& regs) {
@@ -245,7 +243,7 @@ namespace HUD {
             return;
 
         auto* position = reinterpret_cast<float*>(regs.eax);
-        position[0] = (position[0] * Res.fWidth - Res.HudOffset) / Res.fWidth43;
+        position[0] = (position[0] - Res.HudOffsetRatio) / Res.fWidthRatio;
     }
 
     void SquareMinimap(injector::reg_pack& regs) {
@@ -390,7 +388,7 @@ namespace UI {
         }
         float textShift = 0.0f;
         if (CenteredText)
-            textShift = side * (Res.fHeight * Res.AspectRatio - Res.fWidth43) / 2.0f;
+            textShift = side * Res.HudOffset;
         auto shift = std::exchange(HUD::TextShift, textShift);
 
         auto result = PrintLongStringHook.unsafe_ccall<char>(text, clip, x, y, spacing, scale, colour, format);
@@ -409,11 +407,10 @@ namespace UI {
     }
 
     void __cdecl ProfileViewingArea(const Asura::ViewingArea* area) {
-        const float ratio = Res.fWidth43 / Res.fWidth;
         const Asura::ViewingArea viewport{
-            area->Width * ratio,
+            area->Width * Res.fWidthRatio,
             area->Height,
-            area->XOffset * ratio + Res.HudOffset / Res.fWidth,
+            area->XOffset * Res.fWidthRatio + Res.HudOffsetRatio,
             area->YOffset
         };
         SetViewingArea(&viewport);
@@ -527,7 +524,10 @@ void GetResolution() {
 
     Res.Width43 = static_cast<int32_t>(Res.fHeight * Aspect43);
     Res.fWidth43 = static_cast<float>(Res.Width43);
-    Res.HudOffset = (Res.fWidth - Res.Width43) / 2.0f;
+    Res.fWidthRatio = Res.fWidth43 / Res.fWidth;
+    Res.HudOffset = (Res.fWidth - Res.fWidth43) / 2.0f;
+    Res.HudOffset43 = Res.HudOffset / Res.fWidth43;
+    Res.HudOffsetRatio = Res.HudOffset / Res.fWidth;
 }
 
 hook::pattern pattern;
@@ -581,7 +581,7 @@ void Hud() {
     HUD::PlayerArrayShutdown = safetyhook::create_inline(pattern.count(1).get(0).get<uint32_t>(0), HUD::ClearPlayerPointer);
 
     // 0x502232: text and radar arrow scale.
-    static const float HudScaling = (0.0009765625f / Res.AspectRatio) * Aspect43;
+    static const float HudScaling = Res.fWidthRatio * 0.0009765625f;
     pattern = hook::pattern("D8 ? ? ? ? ? D9 ? ? D9 ? ? ? D8 ? ? ? ? ? D9 ? ? ? ? ? D9 ? ? ? D8");
     injector::WriteMemory(pattern.count(1).get(0).get<uint32_t>(2), &HudScaling, true);
 
@@ -612,9 +612,8 @@ void Scopes() {
 
     // 0x49B05D: scope/binocular blur mask UVs cover the 4:3 area.
     pattern = hook::pattern("BE ? ? ? ? F3 ? A1 ? ? ? ? 8B");
-    const float uOffset = Res.HudOffset / Res.fWidth43;
-    const float leftU = -uOffset;
-    const float rightU = 1.f + uOffset;
+    const float leftU =- Res.HudOffset43;
+    const float rightU = 1.f + Res.HudOffset43;
     auto* vertices = reinterpret_cast<HUD::BlurMaskVertex*>(*reinterpret_cast<uint32_t*>(pattern.count(1).get(0).get<uint8_t>(1)));
     for (size_t i = 0; i < 4; ++i) {
         const float u = (i == 1 || i == 2) ? rightU : leftU;
