@@ -329,8 +329,6 @@ namespace UI {
     void(__cdecl* SetViewingArea)(const Asura::ViewingArea*);
     // 0x4885A0, the quad queue called by the 0x48B140 wrapper.
     int32_t(__cdecl* QueueOverlayQuad)(Asura::OverlayQuad*);
-    // 0x487E20: flush the queued overlay quads.
-    void(__cdecl* FlushOverlayQuads)();
 
     // 0x4885A0 queues a quad and 0x487E60 appends its four vertices
     // immediately; the -0.5 closes D3D8 half-pixel seams.
@@ -351,21 +349,21 @@ namespace UI {
     // Solid-colour Asura_Overlay_Quad (TextureIndex = -1).
     void DrawBackdrop(uint32_t colour, bool bordersOnly = false) {
         const float width = bordersOnly ? Res.HudOffset : Res.fWidth;
-        Asura::OverlayQuad background {
+        Asura::OverlayQuad background{
             .X = { 0.0f, width, width, 0.0f },
-            .Y = { 0.0f, 0.0f, Res.fHeight, Res.fHeight }
+            .Y = { 0.0f, 0.0f, Res.fHeight, Res.fHeight },
+            .GouraudColour = colour,
+            .TextureIndex = -1,
+            .GouraudShaded = 1,
+            .NonRotated = 1
         };
-        std::fill(std::begin(background.GouraudColour), std::end(background.GouraudColour), colour & 0xFF000000);
-        background.TextureIndex = -1;
-        background.TranslucencyMode = 1;
-        background.GouraudShaded = background.NonRotated = 1;
+
         QueueQuad(background);
-        if (bordersOnly) { // Cover map icons outside the frame
+        if (bordersOnly) { // Creates another quad on the right side
             background.X[0] = background.X[3] = Res.fWidth - width;
             background.X[1] = background.X[2] = Res.fWidth;
             QueueQuad(background);
         }
-        FlushOverlayQuads(); // Backdrop before foreground so the level map can be visible
     }
 
     void UpdateMouse(injector::reg_pack& regs) {
@@ -435,7 +433,7 @@ namespace HUD {
                 scale = Res.fWidth43 / Res.fWidth;
 
             if (type == Textures::Fullscreen || loading) // Background of loading textures isn't cleared when the game isn't running in exclusive fullscreen
-                UI::DrawBackdrop(quad->GouraudColour[0]);
+                UI::DrawBackdrop(0xFF000000);
         }
 
         if (scale) {
@@ -445,7 +443,7 @@ namespace HUD {
                 x = Res.HudOffset + x * scale + TextShift;
 
             if (Mode == DrawMode::Intel)
-                UI::DrawBackdrop(quad->GouraudColour[0], true);
+                UI::DrawBackdrop(0xFF000000, true);
 
             return UI::QueueQuad(centered);
         }
@@ -720,11 +718,9 @@ void Menus() {
 }
 
 void LoadingScreen() {
-    // 0x4D49E0: loading/background overlay setup. Its texture and flush
-    // routine are reused by the loading screen and the FMV backdrop.
+    // 0x4D49E0: loading overlay setup.
     const auto loadingImage = hook::get_pattern<uint8_t>("A1 ? ? ? ? 68 ? ? ? ? 68 ? ? ? ? 6A ? 6A");
     UI::LoadingTexture = *reinterpret_cast<int32_t**>(loadingImage + 1);
-    UI::FlushOverlayQuads = reinterpret_cast<decltype(UI::FlushOverlayQuads)>(injector::GetBranchDestination(loadingImage + 102, true).as_int());
 
     // 0x4D4770 / 0x4D4840 / 0x4D4930 / 0x4D4CF0: frame, text, progress bar
     // and percentage overlay. Exclude the fullscreen background image.
