@@ -4,7 +4,7 @@ Widescreen is a light alternative of Fusion Fix focusing purely on Resolution fi
 
 ## Installation
 
-1. Download [SniperElite.Widescreen.asi](https://github.com/Skajdrowski/SniperElite.Widescreen/releases/download/1.0/SniperElite.Widescreen.asi)
+1. Download [SniperElite.Widescreen.asi](https://github.com/Skajdrowski/SniperElite.Widescreen/releases/download/Release/SniperElite.Widescreen.asi)
 2. Download [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/v9.7.4/Ultimate-ASI-Loader-NoPDB.zip)
 3. Extract `Ultimate-ASI-Loader-NoPDB.zip` and move `SniperElite.Widescreen.asi` into your **Sniper Elite game folder**
 4. Launch and play the game.
