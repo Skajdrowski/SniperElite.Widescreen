@@ -177,7 +177,7 @@ namespace HUD {
 
     int32_t __cdecl FetchPlayerPointer(int32_t playerCount) {
         const auto result = PlayerArrayInit.unsafe_ccall<int32_t>(playerCount);
-        localPlayer = static_cast<uint8_t*>(GetPlayerByIndex(0));
+        localPlayer = reinterpret_cast<uint8_t*>(GetPlayerByIndex(0));
         return result;
     }
 
@@ -187,7 +187,13 @@ namespace HUD {
     }
 
     inline bool IsPlayerInSniperMode() {
-        return localPlayer && localPlayer[0x1AC] == 3;
+        if (localPlayer == nullptr)
+            return false;
+
+        const auto playerCam = *reinterpret_cast<uint8_t**>(localPlayer + 0x64);
+
+        // Camera mode. Null means Sniper mode
+        return playerCam && *reinterpret_cast<uint32_t*>(playerCam + 4) == 0;
     }
 
     float TextShift = 0.0f;
@@ -340,7 +346,7 @@ namespace UI {
 
     template <DrawMode drawMode, SafetyHookInline& hook, typename Result = int32_t, typename... Args>
     Result __cdecl Draw(Args... args) {
-        auto mode = std::exchange(Mode, Mode == DrawMode::Intel ? DrawMode::Intel : drawMode); // Preserve info context in nested menus
+        auto mode = std::exchange(Mode, Mode == DrawMode::Intel ? DrawMode::Intel : drawMode); // Preserve intel context in nested menus
         auto result = hook.template unsafe_ccall<Result>(args...);
         Mode = mode;
         return result;
@@ -566,8 +572,7 @@ void Hud() {
     // font and loading code. RedirectViewportWidth rewrites references to it.
     NativeViewportWidthAddress = *hook::get_pattern<uint32_t>("DB ? ? ? ? ? D8 ? D9 ? DB ? ? ? ? ? D8 ? D9", 2);
 
-    // 0x4A1660 / 0x4A0F00 / 0x4A1970: player array access used to detect the
-    // sniper mode flag at player+0x1AC.
+    // 0x4A1660 / 0x4A0F00 / 0x4A1970: player array access used to detect player's camera mode flag.
     pattern = hook::pattern("8B ? ? ? 85 ? 7C ? 3B ? ? ? ? ? 7D ? 8B ? ? ? ? ? 8B ? ? C3 33 ? C3 ? ? ? A0");
     HUD::GetPlayerByIndex = reinterpret_cast<decltype(HUD::GetPlayerByIndex)>(pattern.count(1).get(0).get<uint32_t>(0));
     pattern = hook::pattern("64 ? ? ? ? ? 6A ? 68 ? ? ? ? 50 8B ? ? ? 64 ? ? ? ? ? ? 53 56 A3");
@@ -582,7 +587,7 @@ void Hud() {
     pattern = hook::pattern("D8 ? ? ? ? ? D9 ? ? D9 ? ? ? D8 ? ? ? ? ? D9 ? ? ? ? ? D9 ? ? ? D8");
     injector::WriteMemory(pattern.count(1).get(0).get<uint32_t>(2), &HudScaling, true);
 
-    // 0x5020C0 call site: HUD element layout, recentred inside the 4:3 area.
+    // 0x5020C0 child loop: HUD element layout, recentred inside the 4:3 area.
     pattern = hook::pattern("8B ? ? 85 ? 74 ? 8B ? ? 33 ? 85 ? 7E ? EB ? 8D ? ? 8B");
     HUD::ScaleAndAnchorHook = safetyhook::create_mid(pattern.count(1).get(0).get<uint32_t>(0), HUD::ScaleAndAnchor);
 
